@@ -1,0 +1,29 @@
+# LTX-Video Custom Kernels - Build Configuration
+# Targets NVIDIA H100 (sm_90) for optimal performance
+#
+# Build with Nix (recommended):
+#   nix flake update && nix run .#build-and-copy -L
+#
+# Build with pip/uv:
+#   uv pip install -e .
+
+[general]
+name = "kernels"
+backends = ["cuda"]
+
+[general.cuda]
+# H100 compute capability
+# sm_90 = compute capability 9.0
+
+[torch]
+src = [
+    "torch-ext/torch_binding.cpp",
+]
+
+
+
+[kernel.attention_int8]
+backend = "cuda"
+depends = []
+src = ["kernels/attention_int8.cu"]
+cuda-capabilities = ["9.0"]
