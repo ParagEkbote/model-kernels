@@ -8,22 +8,14 @@
 #   uv pip install -e .
 
 [general]
-name = "kernels"
+name = "attention_int8"
 backends = ["cuda"]
 
-[general.cuda]
-# H100 compute capability
-# sm_90 = compute capability 9.0
-
 [torch]
-src = [
-    "torch-ext/torch_binding.cpp",
-]
-
-
+src = ["torch-ext/torch_binding.cpp"]
 
 [kernel.attention_int8]
 backend = "cuda"
 depends = []
-src = ["kernels/attention_int8.cu"]
-cuda-capabilities = ["9.0"]
+src = ["attention_int8.cu"]
+cuda-capabilities = ["8.0", "8.9", "9.0"]

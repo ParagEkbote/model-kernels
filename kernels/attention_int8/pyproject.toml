@@ -1,16 +1,25 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "torch>=2.0"]
+requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kernels"
+name = "attention-int8-kernel"
 version = "0.1.0"
-description = "Optimized CUDA kernels for img models on GPUs"
+description = "Timestep-aware INT8 attention CUDA kernel for diffusion transformers"
 readme = "README.md"
-license = {text = "MIT"}
-requires-python = ">=3.8"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+
 dependencies = [
     "torch>=2.0",
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
 ]
 
 [project.optional-dependencies]
@@ -25,5 +34,5 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["torch-ext"]
-include = ["kernels*"]
+where = ["."]
+include = ["attention_int8*"]
