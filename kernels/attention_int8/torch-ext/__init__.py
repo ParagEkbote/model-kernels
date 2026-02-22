@@ -2,23 +2,32 @@ from torch.utils.cpp_extension import load
 import os
 import torch
 
-# Import the compiled extension
+# -------------------------------------------------------------------------
+# Import compiled extension
+# -------------------------------------------------------------------------
+
 try:
     from . import _ops as ops
 except ImportError:
-    # Fallback for development/testing
     ops = None
+
+# -------------------------------------------------------------------------
+# Register custom op (torch.compile compatible)
+# -------------------------------------------------------------------------
 
 if ops is not None:
     try:
-        # Register as custom op (PyTorch 2.1+) for torch.compile compatibility
-        @torch.library.custom_op("kernels::int8_attention_forward", mutates_args=())
+        @torch.library.custom_op(
+            "kernels::int8_attention_forward",
+            mutates_args=()
+        )
         def _int8_attention_custom_op(
             Q: torch.Tensor,
             K: torch.Tensor,
             V: torch.Tensor,
             timestep_scales: torch.Tensor | None = None,
             timestep: int = 0,
+            causal: bool = False,
         ) -> torch.Tensor:
             return ops.int8_attention_forward(
                 Q.contiguous(),
@@ -26,6 +35,7 @@ if ops is not None:
                 V.contiguous(),
                 timestep_scales.contiguous() if timestep_scales is not None else None,
                 int(timestep),
+                bool(causal),
             )
 
         @_int8_attention_custom_op.register_fake
@@ -35,16 +45,22 @@ if ops is not None:
             V: torch.Tensor,
             timestep_scales: torch.Tensor | None = None,
             timestep: int = 0,
+            causal: bool = False,
         ) -> torch.Tensor:
             return Q.new_empty(Q.shape)
 
         _CUSTOM_OP_REGISTERED = True
+
     except (AttributeError, Exception):
         # torch.library.custom_op not available
         pass
 
+# -------------------------------------------------------------------------
+# JIT build fallback (development mode)
+# -------------------------------------------------------------------------
 
 _THIS_DIR = os.path.dirname(__file__)
+
 _SRC = [
     os.path.join(_THIS_DIR, "attention_int8.cu"),
     os.path.join(_THIS_DIR, "torch_binding.cpp"),
@@ -65,21 +81,51 @@ def _get_mod():
         _mod = _build_module()
     return _mod
 
-def int8_attention_forward(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, timestep_scales: torch.Tensor=None, timestep: int=0) -> torch.Tensor:
-    """Run the fused INT8 attention kernel.
+# -------------------------------------------------------------------------
+# Public Python wrapper
+# -------------------------------------------------------------------------
+
+def int8_attention_forward(
+    Q: torch.Tensor,
+    K: torch.Tensor,
+    V: torch.Tensor,
+    timestep_scales: torch.Tensor | None = None,
+    timestep: int = 0,
+    causal: bool = False,
+) -> torch.Tensor:
+    """
+    Run the fused INT8 diffusion attention kernel.
 
     Args:
-        Q,K,V: Tensors with shape [B,H,N,D], dtype=torch.float16, CUDA.
-        timestep_scales: Optional float32 CUDA tensor lookup table.
-        timestep: integer timestep index for lookup.
+        Q: Tensor [B, H, N, D], float16, CUDA
+        K: Tensor [B, kv_H, N, D], float16, CUDA
+        V: Tensor [B, kv_H, N, D], float16, CUDA
+        timestep_scales: Optional float32 CUDA tensor [T]
+        timestep: integer timestep index
+        causal: whether to apply causal masking
 
     Returns:
-        output tensor of same shape and dtype as Q.
+        Tensor [B, H, N, D], float16
     """
+
+    if not Q.is_cuda or not K.is_cuda or not V.is_cuda:
+        raise ValueError("Q, K, V must be CUDA tensors")
+
+    if Q.dtype != torch.float16:
+        raise ValueError("Q must be float16")
+
+    if Q.shape[-1] % 16 != 0:
+        raise ValueError("HEAD_DIM must be multiple of 16")
+
     mod = _get_mod()
-    if timestep_scales is None:
-        return mod.int8_attention_forward(Q.contiguous(), K.contiguous(), V.contiguous(), None, int(timestep))
-    else:
-        return mod.int8_attention_forward(Q.contiguous(), K.contiguous(), V.contiguous(), timestep_scales.contiguous(), int(timestep))
+
+    return mod.int8_attention_forward(
+        Q.contiguous(),
+        K.contiguous(),
+        V.contiguous(),
+        timestep_scales.contiguous() if timestep_scales is not None else None,
+        int(timestep),
+        bool(causal),
+    )
 
 __all__ = ["int8_attention_forward"]
