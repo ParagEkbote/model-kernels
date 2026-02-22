@@ -12,7 +12,7 @@ name = "attention_int8"
 backends = ["cuda"]
 
 [torch]
-src = ["torch-ext/torch_binding.cpp"]
+src = ["torch-ext/attention_int8/torch_binding.cpp"]
 
 [kernel.attention_int8]
 backend = "cuda"
