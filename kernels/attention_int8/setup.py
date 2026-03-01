@@ -34,7 +34,7 @@ CUDA_SOURCES = [
 ]
 
 CPP_SOURCES = [
-    THIS_DIR / "torch-ext" / "torch_binding.cpp",
+    THIS_DIR / "torch-ext" / "attention_int8" / "torch_binding.cpp",
 ]
 
 # Convert to string paths
@@ -164,8 +164,6 @@ setup(
             extra_compile_args=extra_compile_args,
             
             # Link with CUDA libraries
-            libraries=["cuda", "cudart"],
-            library_dirs=[],  # Will auto-detect from CUDA_HOME
             
             # Whether to link statically or dynamically
             extra_link_args=[],
