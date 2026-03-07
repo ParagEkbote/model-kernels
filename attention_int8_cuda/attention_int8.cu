@@ -3,8 +3,6 @@
 // v2 with comprehensive safeguards and PyTorch tensor validation
 // ============================================================================
 
-#pragma once
-
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/all.h>
@@ -127,7 +125,7 @@ int8_attention_kernel(
     const float16* __restrict__ V,
     float16*       __restrict__ O,
     const float*   __restrict__ timestep_scales,
-    int  timestep,
+    int64_t  timestep,
     int  B, int H, int kv_H, int N)
 {
     constexpr int BQ = BlockConfig<HEAD_DIM>::BQ;
@@ -142,7 +140,6 @@ int8_attention_kernel(
     const int q_tile = blockIdx.z;
     const int tid    = threadIdx.x;
     const int wid    = tid >> 5;
-    const int lane   = tid & 31;
 
     const int q_start = q_tile * BQ;
     if (q_start >= N) return;
@@ -193,10 +190,12 @@ int8_attention_kernel(
     for (int i  = tid; i  < BQ * HEAD_DIM; i += THREADS) out_acc[i] = 0.f;
     __syncthreads();
 
-    // WMMA fragment types [G1]
+#if __CUDA_ARCH__ >= 750
+    // WMMA fragment types — INT8 WMMA requires sm_75+ (Turing and above) [G1]
     using FragA   = wmma::fragment<wmma::matrix_a,    16, 16, 16, int8_t, wmma::row_major>;
     using FragB   = wmma::fragment<wmma::matrix_b,    16, 16, 16, int8_t, wmma::col_major>;
     using FragAcc = wmma::fragment<wmma::accumulator, 16, 16, 16, int32_t>;
+#endif
 
     const float inv_sqrt_d = rsqrtf((float)HEAD_DIM);
 
@@ -225,36 +224,52 @@ int8_attention_kernel(
         for (int i = tid; i < BQ * BK; i += THREADS) QK_i32[i] = 0;
         __syncthreads();
 
-        // [F9][G1] WMMA INT8×INT8 → INT32
-        const int nQ16 = BQ / 16;
-        const int nK16 = BK / 16;
-        const int nD16 = HEAD_DIM / 16;
+        // [F9][G1] INT8 matrix multiply Q_i8 x K_i8_T -> QK_i32
+#if __CUDA_ARCH__ >= 750
+        // WMMA path: sm_75+ (Turing, Ampere, Ada, Hopper...)
+        {
+            const int nQ16 = BQ / 16;
+            const int nK16 = BK / 16;
+            const int nD16 = HEAD_DIM / 16;
 
-        const int total_tiles = nQ16 * nK16;
-        for (int wt = wid; wt < total_tiles; wt += WARPS) {
-            const int qi16 = wt / nK16;
-            const int ki16 = wt % nK16;
+            const int total_tiles = nQ16 * nK16;
+            for (int wt = wid; wt < total_tiles; wt += WARPS) {
+                const int qi16 = wt / nK16;
+                const int ki16 = wt % nK16;
 
-            FragAcc acc; wmma::fill_fragment(acc, 0);
+                FragAcc acc; wmma::fill_fragment(acc, 0);
 
-            for (int d16 = 0; d16 < nD16; ++d16) {
-                FragA fa; FragB fb;
+                for (int d16 = 0; d16 < nD16; ++d16) {
+                    FragA fa; FragB fb;
 
-                wmma::load_matrix_sync(fa,
-                    Q_i8 + qi16 * 16 * HEAD_DIM + d16 * 16,
-                    HEAD_DIM);
+                    wmma::load_matrix_sync(fa,
+                        Q_i8 + qi16 * 16 * HEAD_DIM + d16 * 16,
+                        HEAD_DIM);
 
-                wmma::load_matrix_sync(fb,
-                    K_i8_T + d16 * 16 * BK + ki16 * 16,
-                    BK);
+                    wmma::load_matrix_sync(fb,
+                        K_i8_T + d16 * 16 * BK + ki16 * 16,
+                        BK);
 
-                wmma::mma_sync(acc, fa, fb, acc);
+                    wmma::mma_sync(acc, fa, fb, acc);
+                }
+
+                wmma::store_matrix_sync(
+                    QK_i32 + qi16 * 16 * BK + ki16 * 16,
+                    acc, BK, wmma::mem_row_major);
             }
-
-            wmma::store_matrix_sync(
-                QK_i32 + qi16 * 16 * BK + ki16 * 16,
-                acc, BK, wmma::mem_row_major);
         }
+#else
+        // Scalar fallback: sm_70/sm_72 (Volta) — correct but slower
+        for (int qi = wid; qi < BQ; qi += WARPS) {
+            for (int ki = 0; ki < BK; ++ki) {
+                int32_t sum = 0;
+                for (int d = 0; d < HEAD_DIM; ++d)
+                    sum += (int32_t)Q_i8[qi * HEAD_DIM + d] *
+                           (int32_t)K_i8_T[d * BK + ki];
+                QK_i32[qi * BK + ki] = sum;
+            }
+        }
+#endif
         __syncthreads();
 
         // [F2][G5] Online softmax — warp-partitioned rows
@@ -339,7 +354,7 @@ inline cudaError_t launch_int8_attention(
     const float16* V,
     float16*       O,
     const float*   timestep_scales,
-    int  timestep,
+    int64_t  timestep,
     int  B, int H, int kv_H, int N, int D,
     bool causal,
     cudaStream_t stream = 0)
@@ -474,7 +489,7 @@ torch::Tensor int8_attention(
     torch::Tensor K,
     torch::Tensor V,
     torch::Tensor timestep_scales,
-    int timestep,
+    int64_t timestep,
     bool causal)
 {
     int8_attention_check_inputs(Q, K, V, Q, timestep_scales);
@@ -508,7 +523,7 @@ torch::Tensor int8_attention(
         reinterpret_cast<const float16*>(V_fp16.data_ptr<at::Half>()),
         reinterpret_cast<float16*>(O_fp16.data_ptr<at::Half>()),
         ts_ptr,
-        timestep,
+        static_cast<int>(timestep),
         B, H, kv_H, N, D,
         causal,
         stream);
@@ -527,10 +542,3 @@ torch::Tensor int8_attention(
     return O;
 }
 
-// ============================================================================
-// TORCH_LIBRARY binding (if using PyTorch 1.9+)
-// ============================================================================
-TORCH_LIBRARY(int8_attn, m) {
-    m.def("int8_attention(Tensor Q, Tensor K, Tensor V, Tensor? timestep_scales, int timestep, bool causal) -> Tensor",
-          &int8_attention);
-}

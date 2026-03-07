@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <stdexcept>
 #include <sstream>
+#include <vector>
+#include <tuple>
+#include <cmath>
 
 // ============================================================================
 // Kernel Launcher Declaration (from int8_attention_integrated.cu)

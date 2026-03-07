@@ -3,6 +3,11 @@
 #include <torch/torch.h>
 #include <c10/util/Optional.h>
 
+#include <vector>
+#include <tuple>
+#include <utility>
+#include <string>
+
 // ============================================================================
 // INT8 Attention Binding - Header
 // ============================================================================
@@ -68,7 +73,7 @@ void validate_timestep_scales(
     int64_t timestep);
 
 // ============================================================================
-// Main API Functions
+// Main API
 // ============================================================================
 
 /**
@@ -164,7 +169,7 @@ torch::Tensor int8_attention_forward(
  * 
  * @note Currently unimplemented. Returns error if called.
  */
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> 
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
 int8_attention_backward(
     torch::Tensor grad_O,
     torch::Tensor Q,
@@ -176,7 +181,7 @@ int8_attention_backward(
     bool causal = false);
 
 // ============================================================================
-// Utility Functions
+// Utility API
 // ============================================================================
 
 /**
@@ -210,8 +215,12 @@ bool is_head_dim_supported(int64_t D);
  */
 std::vector<int64_t> get_supported_head_dims();
 
+std::pair<int64_t, int64_t> get_block_config(int64_t D);
+
+int64_t get_occupancy_hint(int64_t D);
+
 // ============================================================================
-// Device-Specific Implementations (conditionally compiled)
+// Device Implementations
 // ============================================================================
 
 #ifdef TORCH_EXTENSION_CUDA
@@ -228,7 +237,7 @@ torch::Tensor int8_attention_cuda(
     int64_t timestep,
     bool causal);
 
-#endif  // TORCH_EXTENSION_CUDA
+#endif
 
 #ifdef TORCH_EXTENSION_CPU
 
@@ -245,34 +254,4 @@ torch::Tensor int8_attention_cpu(
     int64_t timestep,
     bool causal);
 
-#endif  // TORCH_EXTENSION_CPU
-
-// ============================================================================
-// Configuration & Tuning
-// ============================================================================
-
-/**
- * @brief Get optimal block tile sizes for given HEAD_DIM
- * 
- * @param D Head dimension
- * @return Pair of (BQ, BK) tile sizes, or {0, 0} if unsupported
- * 
- * @example
- * ```cpp
- * auto [BQ, BK] = get_block_config(64);  // Returns {64, 64}
- * auto [BQ, BK] = get_block_config(256); // Returns {32, 32}
- * ```
- */
-std::pair<int64_t, int64_t> get_block_config(int64_t D);
-
-/**
- * @brief Get recommended occupancy hint for given HEAD_DIM
- * 
- * Returns minimum blocks per SM to balance occupancy with register pressure.
- * 
- * @param D Head dimension
- * @return MIN_BLOCKS value; 0 if unsupported
- */
-int64_t get_occupancy_hint(int64_t D);
-
-#endif  // TORCH_BINDING_H
+#endif
