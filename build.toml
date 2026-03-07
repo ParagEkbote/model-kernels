@@ -1,0 +1,16 @@
+[general]
+backends = ["cuda"]
+name = "attention-int8"
+version = 1
+
+[torch]
+src = [
+  "torch-ext/torch_binding.cpp",
+  "torch-ext/torch_binding.h",
+]
+
+[kernel.attention_int8]
+backend = "cuda"
+depends = ["torch"]
+src = ["attention_int8_cuda/attention_int8.cu"]
+
