@@ -179,7 +179,7 @@ int8_attention_kernel(
     }
 
     float abs_max_Q   = block_reduce_max(lqmax, warp_scr);
-    const float inv_Q = 127.f / fmaxf(abs_max_Q * ts, 1e-6f);
+    const float inv_Q = 127.f / fmaxf(abs_max_Q, 1e-6f);
     const float scl_Q = 1.f / inv_Q;
 
     // Quantize Q tile
