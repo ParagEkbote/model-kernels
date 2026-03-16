@@ -204,16 +204,17 @@ int8_attention_kernel(
 
     const float inv_sqrt_d = rsqrtf((float)HEAD_DIM);
 
+    float lkmax_global = 0.f;
+
+    for (int i = tid; i < N * HEAD_DIM; i += THREADS) lkmax_global = fmaxf(lkmax_global, fabsf(__half2float(K_head[i])));
+    
+    float abs_max_K_global = block_reduce_max(lkmax_global, warp_scr);
+    const float inv_K = 127.f / fmaxf(abs_max_K_global * ts, 1e-6f);
+    const float scl_K = 1.f / inv_K;
+
     // Stream K tiles
     for (int k_start = 0; k_start < N; k_start += BK) {
         const int k_size = min(BK, N - k_start);
-
-        float lkmax = 0.f;
-        for (int i = tid; i < k_size * HEAD_DIM; i += THREADS)
-            lkmax = fmaxf(lkmax, fabsf(__half2float(K_head[k_start * HEAD_DIM + i])));
-        float abs_max_K   = block_reduce_max(lkmax, warp_scr);
-        const float inv_K = 127.f / fmaxf(abs_max_K * ts, 1e-6f);
-        const float scl_K = 1.f / inv_K;
 
         // [F5][G1] Fused quantize + transpose K
         load_and_quantize_K_transposed<HEAD_DIM, BK>(
