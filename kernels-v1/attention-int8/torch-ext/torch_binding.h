@@ -1,12 +1,12 @@
 #pragma once
 
-#include <torch/torch.h>
 #include <c10/util/Optional.h>
+#include <torch/torch.h>
 
-#include <vector>
+#include <string>
 #include <tuple>
 #include <utility>
-#include <string>
+#include <vector>
 
 // ============================================================================
 // INT8 Attention Binding - Header
@@ -30,10 +30,9 @@
  * @param expected_dtype Expected tensor dtype (e.g., torch::kHalf for FP16)
  * @throws std::runtime_error if validation fails
  */
-void validate_tensor_properties(
-    const torch::Tensor& tensor,
-    const std::string& name,
-    torch::ScalarType expected_dtype);
+void validate_tensor_properties(const torch::Tensor &tensor,
+                                const std::string &name,
+                                torch::ScalarType expected_dtype);
 
 /**
  * @brief Validate QKV tensor shapes and compatibility
@@ -42,10 +41,8 @@ void validate_tensor_properties(
  * @param V Value tensor [B, kv_H, N, D]
  * @throws std::runtime_error if shapes are incompatible
  */
-void validate_qkv_shapes(
-    const torch::Tensor& Q,
-    const torch::Tensor& K,
-    const torch::Tensor& V);
+void validate_qkv_shapes(const torch::Tensor &Q, const torch::Tensor &K,
+                         const torch::Tensor &V);
 
 /**
  * @brief Validate HEAD_DIM is supported by kernel
@@ -69,8 +66,7 @@ void validate_kva_constraint(int64_t H, int64_t kv_H);
  * @throws std::runtime_error if validation fails
  */
 void validate_timestep_scales(
-    const c10::optional<torch::Tensor>& timestep_scales,
-    int64_t timestep);
+    const c10::optional<torch::Tensor> &timestep_scales, int64_t timestep);
 
 // ============================================================================
 // Main API
@@ -144,12 +140,9 @@ void validate_timestep_scales(
  * ```
  */
 torch::Tensor int8_attention_forward(
-    torch::Tensor Q,
-    torch::Tensor K,
-    torch::Tensor V,
+    torch::Tensor Q, torch::Tensor K, torch::Tensor V,
     c10::optional<torch::Tensor> timestep_scales = c10::nullopt,
-    int64_t timestep = 0,
-    bool causal = false);
+    int64_t timestep = 0, bool causal = false);
 
 /**
  * @brief INT8 attention backward pass (future extension)
@@ -169,16 +162,11 @@ torch::Tensor int8_attention_forward(
  *
  * @note Currently unimplemented. Returns error if called.
  */
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
-int8_attention_backward(
-    torch::Tensor grad_O,
-    torch::Tensor Q,
-    torch::Tensor K,
-    torch::Tensor V,
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> int8_attention_backward(
+    torch::Tensor grad_O, torch::Tensor Q, torch::Tensor K, torch::Tensor V,
     torch::Tensor O,
     c10::optional<torch::Tensor> timestep_scales = c10::nullopt,
-    int64_t timestep = 0,
-    bool causal = false);
+    int64_t timestep = 0, bool causal = false);
 
 // ============================================================================
 // Utility API
@@ -229,13 +217,10 @@ int64_t get_occupancy_hint(int64_t D);
  * @brief CUDA-specific INT8 attention implementation
  * @note Called only on CUDA devices via dispatcher
  */
-torch::Tensor int8_attention_cuda(
-    torch::Tensor Q,
-    torch::Tensor K,
-    torch::Tensor V,
-    c10::optional<torch::Tensor> timestep_scales,
-    int64_t timestep,
-    bool causal);
+torch::Tensor int8_attention_cuda(torch::Tensor Q, torch::Tensor K,
+                                  torch::Tensor V,
+                                  c10::optional<torch::Tensor> timestep_scales,
+                                  int64_t timestep, bool causal);
 
 #endif
 
@@ -246,12 +231,9 @@ torch::Tensor int8_attention_cuda(
  * @note Called only on CPU devices; for reference/validation only
  * @warning Very slow compared to CUDA; not recommended for production
  */
-torch::Tensor int8_attention_cpu(
-    torch::Tensor Q,
-    torch::Tensor K,
-    torch::Tensor V,
-    c10::optional<torch::Tensor> timestep_scales,
-    int64_t timestep,
-    bool causal);
+torch::Tensor int8_attention_cpu(torch::Tensor Q, torch::Tensor K,
+                                 torch::Tensor V,
+                                 c10::optional<torch::Tensor> timestep_scales,
+                                 int64_t timestep, bool causal);
 
 #endif
