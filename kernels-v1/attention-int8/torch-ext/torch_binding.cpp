@@ -80,8 +80,9 @@ void validate_shapes(const torch::Tensor &Q, const torch::Tensor &K,
 void validate_head_dim(int64_t D) {
   TORCH_CHECK(D % 16 == 0, "HEAD_DIM must be multiple of 16, got ", D);
 
-  TORCH_CHECK(is_head_dim_supported(D), "Unsupported HEAD_DIM=", D,
-              ". Supported: 32, 64, 80, 96, 128, 160, 256");
+    TORCH_CHECK(is_head_dim_supported(D),
+        "Unsupported HEAD_DIM=", D,
+        ". Supported: 32, 64, 80, 96, 128, 160, 256");
 }
 
 void validate_kv_constraint(int64_t H, int64_t kv_H) {
@@ -109,9 +110,9 @@ void validate_timestep_scales(const c10::optional<torch::Tensor> &ts,
   TORCH_CHECK(t.dim() == 1, "timestep_scales must be 1D, got shape ",
               t.sizes());
 
-  TORCH_CHECK(t.size(0) == batch_size,
-              "timestep_scales batch size mismatch: expected ", batch_size,
-              ", got ", t.size(0));
+    TORCH_CHECK(t.size(0) == batch_size,
+        "timestep_scales batch size mismatch: expected ", batch_size,
+        ", got ", t.size(0));
 
   TORCH_CHECK(timestep >= 0, "timestep must be >= 0, got ", timestep);
 }
@@ -226,6 +227,7 @@ TORCH_LIBRARY(int8_attn, m) {
         "Tensor? timestep_scales=None,"
         "int timestep=0,"
         "bool causal=False"
-        ") -> Tensor");
-  m.impl("int8_attention_forward", torch::kCUDA, &int8_attention_forward);
+        ") -> Tensor"
+    );
+    m.impl("int8_attention_forward", torch::kCUDA, &int8_attention_forward);
 }
