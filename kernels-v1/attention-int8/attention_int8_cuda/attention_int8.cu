@@ -172,30 +172,25 @@ int8_attention_kernel(
     {
     int qi = i / HEAD_DIM;
     int di = i % HEAD_DIM;
-    lqmax = fmaxf(lqmax,
-                  fabsf(__half2float(Q_head[(q_start + qi) * HEAD_DIM + di])));
-  }
+    lqmax = fmaxf(lqmax, fabsf(__half2float(Q_head[(q_start + qi) * HEAD_DIM + di])));
+    }
 
-  float abs_max_Q = block_reduce_max(lqmax, warp_scr);
-  const float inv_Q = 127.f / fmaxf(abs_max_Q * ts, 1e-6f);
-  const float scl_Q = 1.f / inv_Q;
+    float abs_max_Q   = block_reduce_max(lqmax, warp_scr);
+    const float inv_Q = 127.f / fmaxf(abs_max_Q, 1e-6f);
+    const float scl_Q = 1.f / inv_Q;
 
-  // Quantize Q tile
-  for (int i = tid; i < q_size * HEAD_DIM; i += THREADS) {
-    int qi = i / HEAD_DIM, di = i % HEAD_DIM;
-    Q_i8[qi * HEAD_DIM + di] = quantize_f32(
-        __half2float(Q_head[(q_start + qi) * HEAD_DIM + di]), inv_Q);
-  }
-  pad_Q_rows<HEAD_DIM, BQ>(Q_i8, q_size, tid);
+    // Quantize Q tile
+    for (int i = tid; i < q_size * HEAD_DIM; i += THREADS) {
+        int qi = i / HEAD_DIM, di = i % HEAD_DIM;
+        Q_i8[qi * HEAD_DIM + di] =
+            quantize_f32(__half2float(Q_head[(q_start + qi) * HEAD_DIM + di]), inv_Q);
+    }
+    pad_Q_rows<HEAD_DIM, BQ>(Q_i8, q_size, tid);
 
-  // Initialise per-row accumulators [F3]
-  for (int qi = tid; qi < BQ; qi += THREADS) {
-    row_max[qi] = -1e30f;
-    row_sum[qi] = 0.f;
-  }
-  for (int i = tid; i < BQ * HEAD_DIM; i += THREADS)
-    out_acc[i] = 0.f;
-  __syncthreads();
+    // Initialise per-row accumulators [F3]
+    for (int qi = tid; qi < BQ; qi += THREADS) { row_max[qi] = -1e30f; row_sum[qi] = 0.f; }
+    for (int i  = tid; i  < BQ * HEAD_DIM; i += THREADS) out_acc[i] = 0.f;
+    __syncthreads();
 
 #if __CUDA_ARCH__ >= 750
   // WMMA fragment types — INT8 WMMA requires sm_75+ (Turing and above) [G1]
@@ -208,20 +203,21 @@ int8_attention_kernel(
 
   const float inv_sqrt_d = rsqrtf((float)HEAD_DIM);
 
-  // Stream K tiles
-  for (int k_start = 0; k_start < N; k_start += BK) {
-    const int k_size = min(BK, N - k_start);
+    float lkmax_global = 0.f;
 
-    float lkmax = 0.f;
-    for (int i = tid; i < k_size * HEAD_DIM; i += THREADS)
-      lkmax = fmaxf(lkmax, fabsf(__half2float(K_head[k_start * HEAD_DIM + i])));
-    float abs_max_K = block_reduce_max(lkmax, warp_scr);
-    const float inv_K = 127.f / fmaxf(abs_max_K * ts, 1e-6f);
+    for (int i = tid; i < N * HEAD_DIM; i += THREADS) lkmax_global = fmaxf(lkmax_global, fabsf(__half2float(K_head[i])));
+    
+    float abs_max_K_global = block_reduce_max(lkmax_global, warp_scr);
+    const float inv_K = 127.f / fmaxf(abs_max_K_global * ts, 1e-6f);
     const float scl_K = 1.f / inv_K;
 
-    // [F5][G1] Fused quantize + transpose K
-    load_and_quantize_K_transposed<HEAD_DIM, BK>(K_head + k_start * HEAD_DIM,
-                                                 K_i8_T, k_size, tid, inv_K);
+    // Stream K tiles
+    for (int k_start = 0; k_start < N; k_start += BK) {
+        const int k_size = min(BK, N - k_start);
+
+        // [F5][G1] Fused quantize + transpose K
+        load_and_quantize_K_transposed<HEAD_DIM, BK>(
+            K_head + k_start * HEAD_DIM, K_i8_T, k_size, tid, inv_K);
 
     // Load V tile
     for (int i = tid; i < k_size * HEAD_DIM; i += THREADS) {
